@@ -52,7 +52,7 @@ func New(ctx context.Context, log *slog.Logger, rabbit *rabbitmq.Rabbit) http.Ha
 		taskMsg, err := json.Marshal(task)
 
 		if err != nil {
-			log.Error("Error parse request", "error", err.Error())
+			log.Error("Error parse request", sl.Err(err))
 
 			render.JSON(w, r, resp.Error("Error parse request", 0))
 
@@ -97,7 +97,7 @@ func prepareOptions(postForm url.Values, reqId string) (command.ConvertTask, err
 	if fileId := postForm.Get("params[file_id]"); fileId != "" {
 		taskFileId, err := strconv.Atoi(fileId)
 		if err != nil {
-			return task, fmt.Errorf("error prepareOptions - convert Atoi: %w", err)
+			return task, fmt.Errorf("error prepareOptions - convert Atoi: [%w]", err)
 		}
 		task.FileId = taskFileId
 	}
@@ -105,7 +105,7 @@ func prepareOptions(postForm url.Values, reqId string) (command.ConvertTask, err
 	if fileSize := postForm.Get("params[fileSize]"); fileSize != "" {
 		taskFileSize, err := strconv.ParseInt(fileSize, 10, 64)
 		if err != nil {
-			return task, fmt.Errorf("error prepareOptions - ParseInt: %w", err)
+			return task, fmt.Errorf("error prepareOptions - ParseInt: [%w]", err)
 		}
 		task.FileSize = taskFileSize
 	}

@@ -122,7 +122,7 @@ func (r *Rabbit) Consume(ch *amqp.Channel, queue string) (msgs <-chan amqp.Deliv
 func (r *Rabbit) Publish(queue string, message []byte) error {
 	ch, err := r.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
+		return fmt.Errorf("failed to open channel: [%w]", err)
 	}
 
 	defer ch.Close()
@@ -143,7 +143,7 @@ func (r *Rabbit) Publish(queue string, message []byte) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to publish message: %w", err)
+		return fmt.Errorf("failed to publish message: [%w]", err)
 	}
 	return nil
 }

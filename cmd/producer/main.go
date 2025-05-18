@@ -38,7 +38,7 @@ func main() {
 	rabbit := rabbitmq.New(logger, cfg.Rabbit)
 	err := rabbit.Connect()
 	if err != nil {
-		log.Fatalf("failed connect to RabbitMQ with start producer %v", err)
+		log.Fatalf("failed connect to RabbitMQ with start producer [%v]", err)
 		return
 	}
 
