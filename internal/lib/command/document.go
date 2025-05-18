@@ -36,12 +36,12 @@ var (
 	}
 )
 
-type Document struct {
+type DocumentCommand struct {
 	*BaseCommand
 	uniqId string
 }
 
-func NewDocumentCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.FileUploader, cfg config.ConvertConfig, uniqId string) *Document {
+func NewDocumentCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.FileUploader, cfg config.ConvertConfig, uniqId string) *DocumentCommand {
 	bs := BaseCommand{
 		uploader: uploader,
 		task:     task,
@@ -49,7 +49,7 @@ func NewDocumentCommand(task ConvertTask, log *slog.Logger, uploader fileuploade
 		cfg:      cfg,
 		files:    make(map[string]string),
 	}
-	doc := &Document{
+	doc := &DocumentCommand{
 		BaseCommand: &bs,
 		uniqId:      uniqId,
 	}
@@ -57,7 +57,7 @@ func NewDocumentCommand(task ConvertTask, log *slog.Logger, uploader fileuploade
 	return doc
 }
 
-func (d *Document) validate() error {
+func (d *DocumentCommand) validate() error {
 
 	validate := validator.New()
 
@@ -72,7 +72,7 @@ func (d *Document) validate() error {
 
 }
 
-func (d *Document) transform(format string, filePath string) (string, error) {
+func (d *DocumentCommand) transform(format string, filePath string) (string, error) {
 	fileInfo, err := os.Stat(filePath)
 
 	if err != nil {
@@ -100,7 +100,7 @@ func (d *Document) transform(format string, filePath string) (string, error) {
 	return filepath.Join(directory, util.FileNameNotExt(fileInfo.Name())+"."+format), nil
 }
 
-func (d *Document) preConvert(format string, filePath string) (bool, error) {
+func (d *DocumentCommand) preConvert(format string, filePath string) (bool, error) {
 	needConvert := slices.Contains(convertFromPdf, format)
 	if needConvert {
 		pdf := d.existPdfFile()
@@ -140,7 +140,7 @@ func (d *Document) preConvert(format string, filePath string) (bool, error) {
 	return false, nil
 }
 
-func (d *Document) convertToPng(pdf string) (string, error) {
+func (d *DocumentCommand) convertToPng(pdf string) (string, error) {
 	pngFileName := pdf + ".png"
 	pngs := map[string]string{}
 
@@ -178,7 +178,7 @@ func (d *Document) convertToPng(pdf string) (string, error) {
 	return zipPath, nil
 }
 
-func (d *Document) zipArchive(zipPath string, pngs map[string]string) error {
+func (d *DocumentCommand) zipArchive(zipPath string, pngs map[string]string) error {
 
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
@@ -208,7 +208,7 @@ func (d *Document) zipArchive(zipPath string, pngs map[string]string) error {
 	return nil
 }
 
-func (d *Document) isPdfFile() bool {
+func (d *DocumentCommand) isPdfFile() bool {
 	f, err := os.Open(d.file)
 	if err != nil {
 		return false
@@ -226,7 +226,7 @@ func (d *Document) isPdfFile() bool {
 	return contentType == "application/pdf"
 }
 
-func (d *Document) existPdfFile() string {
+func (d *DocumentCommand) existPdfFile() string {
 	if d.isPdfFile() {
 		return d.file
 	}
@@ -237,14 +237,14 @@ func (d *Document) existPdfFile() string {
 	return ""
 }
 
-func (d *Document) MaxSize() int64 {
+func (d *DocumentCommand) MaxSize() int64 {
 	return d.cfg.MaxDocumentSize
 }
 
-func (d *Document) SuccessDir() string {
+func (d *DocumentCommand) SuccessDir() string {
 	return path.Join(d.cfg.SuccessDir, documentDir)
 }
 
-func (d *Document) DownloadDir() string {
+func (d *DocumentCommand) DownloadDir() string {
 	return path.Join(d.cfg.DownloadDir, documentDir)
 }

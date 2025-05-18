@@ -6,26 +6,24 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     mem_limit: 500m
-    ports:
-      - 15672:15672
-      - 5672:5672
-    #volumes:
-     # - rabbitmq:/var/lib/rabbitmq
+    #  ports:
+    #    - 15672:15672
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
     restart: always
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       interval: 5s
       timeout: 30s
       retries: 3
-#    networks:
-#      - converter
+    networks:
+      - converter
 
   producer:
     container_name: producer
-    network_mode: "host"
     restart: always
-    ports:
-      - 8084:8084
+    #ports:
+      #- ${API_PORT}:${API_PORT}
     env_file:
       - .env
     build:
@@ -36,12 +34,11 @@ services:
         condition: service_started
       rabbit:
         condition: service_healthy
-#    networks:
-#      - converter
+    networks:
+      - converter
 
   consumer:
     container_name: consumer
-    network_mode: "host"
     restart: no
     env_file:
       - .env
@@ -53,8 +50,8 @@ services:
         condition: service_healthy
     volumes:
       - consumer:/app/upload
-#    networks:
-#      - converter
+    networks:
+      - converter
 
 volumes:
   consumer:
@@ -63,5 +60,5 @@ volumes:
     driver: local
 
 
-#networks:
-#  converter:
+networks:
+  converter:

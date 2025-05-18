@@ -23,11 +23,11 @@ const (
 	videoDir     = "video"
 )
 
-type Video struct {
+type VideoCommand struct {
 	*BaseCommand
 }
 
-func NewVideoCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.FileUploader, cfg config.ConvertConfig) *Video {
+func NewVideoCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.FileUploader, cfg config.ConvertConfig) *VideoCommand {
 	bs := BaseCommand{
 		uploader: uploader,
 		task:     task,
@@ -35,14 +35,14 @@ func NewVideoCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.F
 		cfg:      cfg,
 		files:    make(map[string]string),
 	}
-	vd := &Video{
+	vd := &VideoCommand{
 		BaseCommand: &bs,
 	}
 	bs.Command = vd
 	return vd
 }
 
-func (v *Video) validate() error {
+func (v *VideoCommand) validate() error {
 	validate := validator.New()
 
 	rules := map[string]string{
@@ -56,7 +56,7 @@ func (v *Video) validate() error {
 
 }
 
-func (v *Video) transform(format string, filePath string) (string, error) {
+func (v *VideoCommand) transform(format string, filePath string) (string, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return "", fmt.Errorf("error get file info [%s]: [%w]", filePath, err)
@@ -87,18 +87,18 @@ func (v *Video) transform(format string, filePath string) (string, error) {
 	return file, nil
 }
 
-func (v *Video) preConvert(format string, filePath string) (bool, error) {
+func (v *VideoCommand) preConvert(format string, filePath string) (bool, error) {
 	return false, nil
 }
 
-func (v *Video) MaxSize() int64 {
+func (v *VideoCommand) MaxSize() int64 {
 	return v.cfg.MaxVideoSize
 }
 
-func (v *Video) SuccessDir() string {
+func (v *VideoCommand) SuccessDir() string {
 	return path.Join(v.cfg.SuccessDir, videoDir)
 }
 
-func (v *Video) DownloadDir() string {
+func (v *VideoCommand) DownloadDir() string {
 	return path.Join(v.cfg.DownloadDir, videoDir)
 }

@@ -48,7 +48,7 @@ func main() {
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
-	for i := 0; i <= 3; i++ {
+	for i := 1; i <= 3; i++ {
 		for _, queue := range queues {
 
 			go func() {

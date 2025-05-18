@@ -7,17 +7,17 @@ import (
 )
 
 type Config struct {
-	Env       string `env:"ENV"`
+	Env       string `env:"CONVERT_ENV"`
 	APIConfig APIConfig
 	Rabbit    RabbitConfig
 	Convert   ConvertConfig
 }
 
 type ConvertConfig struct {
-	SuccessDir      string `env:"SUCCESS_DIRECTORY"`
-	DownloadDir     string `env:"DOWNLOAD_DIRECTORY"`
-	MaxVideoSize    int64  `env:"MAX_VIDEO_SIZE"`
-	MaxDocumentSize int64  `env:"MAX_DOCUMENT_SIZE"`
+	SuccessDir      string `env:"CONVERT_SUCCESS_DIRECTORY"`
+	DownloadDir     string `env:"CONVERT_DOWNLOAD_DIRECTORY"`
+	MaxVideoSize    int64  `env:"CONVERT_MAX_VIDEO_SIZE"`
+	MaxDocumentSize int64  `env:"CONVERT_MAX_DOCUMENT_SIZE"`
 }
 
 type RabbitConfig struct {
@@ -29,9 +29,9 @@ type RabbitConfig struct {
 }
 
 type APIConfig struct {
-	Port        string        `env:"API_PORT"`
-	Timeout     time.Duration `env:"API_TIMEOUT"`
-	IdleTimeout time.Duration `env:"API_IDLE_TIMEOUT"`
+	Port        string        `env:"CONVERT_API_PORT"`
+	Timeout     time.Duration `env:"CONVERT_API_TIMEOUT"`
+	IdleTimeout time.Duration `env:"CONVERT_API_IDLE_TIMEOUT"`
 }
 
 func MustLoad() *Config {
