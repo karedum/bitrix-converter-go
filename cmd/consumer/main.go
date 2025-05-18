@@ -131,7 +131,6 @@ func handleMessage(d amqp.Delivery, log *slog.Logger, cfg *config.Config, uniqId
 
 	task := command.ConvertTask{}
 	queue := d.RoutingKey
-	log.Info("message start " + queue)
 
 	err := json.Unmarshal(d.Body, &task)
 	if err != nil {
@@ -169,6 +168,5 @@ func handleMessage(d amqp.Delivery, log *slog.Logger, cfg *config.Config, uniqId
 			slog.String("command", task.Command),
 			sl.Err(err))
 	}
-	log.Info("message success " + queue)
 	_ = d.Ack(false)
 }
