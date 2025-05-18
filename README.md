@@ -10,16 +10,16 @@
 3. Перенести переменные из .env.example в свой env. Исправить 
 4. Исправить context у контейнеров
 5. Перенести volumes в свой docker-compose.yml
-5. Прописать в настройках модуля transformer адрес: http://producer:8080/convert
+5. Прописать в настройках модуля transformer адрес: http://producer:8100/convert
 ### Если ваш Б24 развернут в собственном окружении
 1. Установить Docker если ещё не установлен
 2. Раскомментировать у producer строчку ports
 3. Скопировать .env.example в .env и запустить контейнеры docker compose up -d
 4. Закрыть порт снаружи
-5. Прописать в настройках модуля transformer адрес: http://localhost:8080/convert
+5. Прописать в настройках модуля transformer адрес: http://localhost:8100/convert
 
 ### Настройка модуля Конвертер файлов (transformer)
 1. Прописываем адрес в зависимости от того как развернут Б24
 2. Указываем публичный адрес сайта
 
-![Настройки модуля](/karedum/bitrix-converter-go/raw/main/assets/settings.png?raw=true)
+![Настройки модуля](/assets/settings.png?raw=true)
