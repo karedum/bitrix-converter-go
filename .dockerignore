@@ -1,0 +1,7 @@
+assets/
+.idea/
+.env
+!README.md
+.gitignore
+.git/
+.DS_Store
