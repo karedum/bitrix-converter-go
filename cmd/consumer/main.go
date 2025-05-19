@@ -97,6 +97,7 @@ func main() {
 							handleMessage(d, logger, cfg, uniqId)
 						default:
 						}
+						time.Sleep(1 * time.Second)
 					}
 				}
 				wg.Done()

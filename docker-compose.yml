@@ -39,7 +39,7 @@ services:
 
   consumer:
     container_name: consumer
-    restart: no
+    restart: always
     env_file:
       - .env
     build:
