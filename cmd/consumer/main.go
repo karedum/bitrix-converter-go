@@ -156,8 +156,7 @@ func handleMessage(d amqp.Delivery, log *slog.Logger, cfg *config.Config, uniqId
 	default:
 		log.Error("failed to get command",
 			slog.String("queue", queue),
-			slog.String("command", task.Command),
-			sl.Err(err))
+			slog.String("command", task.Command))
 		_ = d.Reject(false)
 		return
 	}
