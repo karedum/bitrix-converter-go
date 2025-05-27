@@ -77,7 +77,9 @@ func (r *Rabbit) InitQueue(ch *amqp.Channel, queue string) error {
 		false,
 		false,
 		false,
-		amqp.Table{},
+		amqp.Table{
+			"x-message-ttl": 60480000,
+		},
 	)
 
 	if err != nil {
@@ -93,7 +95,6 @@ func (r *Rabbit) InitQueue(ch *amqp.Channel, queue string) error {
 		amqp.Table{
 			"x-dead-letter-exchange":    "",
 			"x-dead-letter-routing-key": dlQueue,
-			"x-message-ttl":             60480000,
 		},
 	)
 

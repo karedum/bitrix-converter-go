@@ -154,6 +154,7 @@ func (d *DocumentCommand) convertToPng(pdf string) (string, error) {
 	_, err := os.Stat(pngFileName)
 	if err == nil {
 		pngs["0.png"] = pngFileName
+		d.uploader.AddFileToDelete(pngFileName)
 	} else {
 		counter := 0
 		pngFileName = pdf + "-" + strconv.Itoa(counter) + ".png"
@@ -163,6 +164,7 @@ func (d *DocumentCommand) convertToPng(pdf string) (string, error) {
 			if err != nil {
 				break
 			}
+			d.uploader.AddFileToDelete(pngFileName)
 			pngs[strconv.Itoa(counter)+".png"] = pngFileName
 			counter++
 			pngFileName = pdf + "-" + strconv.Itoa(counter) + ".png"
@@ -170,7 +172,7 @@ func (d *DocumentCommand) convertToPng(pdf string) (string, error) {
 	}
 
 	zipPath := pdf + "_pngs.zip"
-
+	d.uploader.AddFileToDelete(zipPath)
 	err = d.zipArchive(zipPath, pngs)
 	if err != nil {
 		return "", fmt.Errorf("error zipping files: [%w]", err)
@@ -230,7 +232,8 @@ func (d *DocumentCommand) existPdfFile() string {
 	if d.isPdfFile() {
 		return d.file
 	}
-	convertedFiles := d.uploader.Files()
+	convertedFiles := d.files
+
 	if file, ok := convertedFiles["pdf"]; ok {
 		return file
 	}
