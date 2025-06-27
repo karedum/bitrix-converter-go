@@ -19,7 +19,7 @@ const (
 	maxWidth     = "1280"
 	videoCommand = "ffmpeg"
 	videoMp4Arg  = "-loglevel warning -i %s -c:v libx264 -r 25 -vf scale=w='min(min(" + maxWidth + "\\,trunc(" + maxWidth + "/max(a/1.7778\\,1.7778/a)/2)*2)\\,trunc(iw/2)*2):h=-2' -strict -2 -preset fast -pix_fmt yuv420p -codec:a aac -f mp4 %s"
-	videoJpgArg  = " -loglevel warning -i %s -an -ss 00:00:00 -vf scale=w='min(min(" + maxWidth + "\\,trunc(" + maxWidth + "/max(a/1.7778\\,1.7778/a)/2)*2)\\,trunc(iw/2)*2):h=-2' -vframes: 1 -r 1 -y %s"
+	videoJpgArg  = "-loglevel warning -i %s -an -ss 00:00:00 -vf scale=w='min(min(" + maxWidth + "\\,trunc(" + maxWidth + "/max(a/1.7778\\,1.7778/a)/2)*2)\\,trunc(iw/2)*2):h=-2' -vframes: 1 -r 1 -y %s"
 	videoDir     = "video"
 )
 
@@ -73,7 +73,7 @@ func (v *VideoCommand) transform(format string, filePath string) (string, error)
 	case "mp4":
 		args = strings.Fields(fmt.Sprintf(videoMp4Arg, filePath, file))
 	case "jpg":
-		args = strings.Fields(videoJpgArg)
+		args = strings.Fields(fmt.Sprintf(videoJpgArg, filePath, file))
 	default:
 		return "", fmt.Errorf("unknown format [%s]", format)
 	}
