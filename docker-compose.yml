@@ -23,7 +23,7 @@ services:
     container_name: producer
     restart: always
     #ports:
-      #- ${API_PORT}:${API_PORT}
+      #- ${CONVERT_API_PORT}:${CONVERT_API_PORT}
     env_file:
       - .env
     build:
