@@ -18,6 +18,6 @@ FROM alpine:latest
 
 COPY --from=builder /app/producer .
 
-EXPOSE ${API_PORT}
+EXPOSE ${CONVERT_API_PORT}
 
 CMD ["./producer"]

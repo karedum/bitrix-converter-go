@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"strings"
 )
 
 type FileUploader struct {
@@ -76,6 +77,9 @@ func (f *FileUploader) Download(url string, filePath string, maxSize int64) erro
 			}).DialContext,
 		},
 	}
+
+    url = f.fixInvalidUrlEscapes(url);
+
 	res, err := client.Head(url)
 
 	if err != nil {
@@ -460,4 +464,26 @@ func (f *FileUploader) getUploadInfo(file string, key string) (*uploadInfoResp, 
 	}
 
 	return &uploadInfoRes, nil
+}
+
+func (f *FileUploader) fixInvalidUrlEscapes(u string) string {
+    var sb strings.Builder
+    for i := 0; i < len(u); i++ {
+        if u[i] == '%' {
+            if i+2 < len(u) && f.isHex(u[i+1]) && f.isHex(u[i+2]) {
+                sb.WriteByte(u[i])
+            } else {
+                sb.WriteString("%25")
+            }
+        } else {
+            sb.WriteByte(u[i])
+        }
+    }
+    return sb.String()
+}
+
+func (f *FileUploader) isHex(b byte) bool {
+    return (b >= '0' && b <= '9') ||
+        (b >= 'a' && b <= 'f') ||
+        (b >= 'A' && b <= 'F')
 }
