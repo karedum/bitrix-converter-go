@@ -167,6 +167,8 @@ func handleMessage(d amqp.Delivery, log *slog.Logger, cfg *config.Config, uniqId
 			slog.String("queue", queue),
 			slog.String("command", task.Command),
 			sl.Err(err))
+      _ = d.Reject(false)
+      return;
 	}
 	_ = d.Ack(false)
 }

@@ -93,6 +93,7 @@ func (bs *BaseCommand) Execute() error {
 			continue
 		}
 		pre, err := bs.preConvert(format, filePath)
+
 		if err != nil {
 			return err
 		}

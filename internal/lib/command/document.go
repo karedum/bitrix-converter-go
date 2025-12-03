@@ -7,7 +7,7 @@ import (
 	"bitrix-converter/internal/lib/util"
 	"fmt"
 	"github.com/go-playground/validator/v10"
-
+    "time"
 	"io"
 	"net/http"
 	"slices"
@@ -87,15 +87,18 @@ func (d *DocumentCommand) transform(format string, filePath string) (string, err
 		return "", fmt.Errorf("error create directory [%s]: [%w]", directory, err)
 	}
 
-	randTmpDir := filepath.Join(os.TempDir(), "libreoffice", d.uniqId)
+	randTmpDir := filepath.Join(os.TempDir(), "libreoffice", d.uniqId, strconv.FormatInt(time.Now().UnixNano(), 10))
 
 	args := strings.Fields(fmt.Sprintf(libreofficeArg, randTmpDir, format, directory, filePath))
 
 	cmd := exec.Command(libreofficeCommand, args...)
 
 	if err = cmd.Run(); err != nil {
+        os.RemoveAll(randTmpDir)
 		return "", fmt.Errorf("error libreoffice command file [%s]: [%w]", filePath, err)
 	}
+
+    os.RemoveAll(randTmpDir)
 
 	return filepath.Join(directory, util.FileNameNotExt(fileInfo.Name())+"."+format), nil
 }
