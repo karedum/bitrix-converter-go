@@ -1,35 +1,28 @@
 package command
 
 import (
-	"bitrix-converter/internal/config"
 	"bitrix-converter/internal/lib/fileuploader"
+	"context"
 	"fmt"
-	"github.com/avast/retry-go"
-	"log/slog"
+	"github.com/go-playground/validator/v10"
 	"os"
-	"path/filepath"
 	"strconv"
-	"time"
+	"sync"
 )
 
-type Command interface {
-	Execute() error
-	validate() error
-	transform(format string, filePath string) (string, error)
-	MaxSize() int64
-	ConvertDir() string
-	DownloadDir() string
-	preConvert(format string, filePath string) (bool, error)
-}
+const (
+	DocumentCommand = "Bitrix\\TransformerController\\Document"
+	VideoCommand    = "Bitrix\\TransformerController\\Video"
+)
 
-type BaseCommand struct {
-	Command
-	uploader fileuploader.FileUploader
-	log      *slog.Logger
-	task     ConvertTask
-	cfg      config.ConvertConfig
-	file     string
-	files    map[string]string
+// Converter - конвертер конкретного типа файлов (документы, видео).
+type Converter interface {
+	Validate(task ConvertTask) error
+	MaxSize() int64
+	DownloadDir() string
+	// Convert конвертирует src во все formats. Возвращает формат -> путь к результату.
+	// Все созданные файлы должны быть добавлены в cleanup.
+	Convert(ctx context.Context, src string, formats []string, cleanup *Cleanup) (map[string]string, error)
 }
 
 type ConvertTask struct {
@@ -44,81 +37,79 @@ type ConvertTask struct {
 	RequestID string
 }
 
-func (bs *BaseCommand) genTmpFilePath(directory string) string {
-	fileName := "original" + strconv.Itoa(bs.task.FileId) + strconv.Itoa(time.Now().Nanosecond())
-
-	return filepath.Join(directory, fileName)
-
-}
-
-func (bs *BaseCommand) Execute() error {
-
-	if err := bs.validate(); err != nil {
+// Execute скачивает файл, конвертирует его, загружает результаты в Битрикс и удаляет временные файлы.
+func Execute(ctx context.Context, conv Converter, task ConvertTask, uploader *fileuploader.FileUploader, uploadConcurrency int) error {
+	if err := conv.Validate(task); err != nil {
 		return fmt.Errorf("failed validate transform task: [%w]", err)
 	}
 
-	directory := bs.DownloadDir()
+	cleanup := &Cleanup{}
+	defer cleanup.Remove()
 
-	err := os.MkdirAll(directory, 0755)
-
+	src, err := createTmpFile(conv.DownloadDir(), task.FileId)
 	if err != nil {
-		return fmt.Errorf("error creating directory [%s]: [%w]", directory, err)
+		return err
+	}
+	cleanup.Add(src)
+
+	if err = uploader.Download(ctx, task.File, src, conv.MaxSize()); err != nil {
+		return fmt.Errorf("error download file [%s]: [%w]", task.File, err)
 	}
 
-	filePath := bs.genTmpFilePath(directory)
-
-	err = retry.Do(
-		func() error {
-			return bs.uploader.Download(bs.task.File, filePath, bs.MaxSize())
-		},
-		retry.Attempts(3),
-		retry.OnRetry(func(n uint, err error) {
-			time.Sleep(1 * time.Second)
-		}),
-	)
-
-	bs.uploader.AddFileToDelete(filePath)
-
-	defer bs.uploader.DeleteFiles()
-
+	files, err := conv.Convert(ctx, src, task.Formats, cleanup)
 	if err != nil {
-		return fmt.Errorf("error download file [%s]: [%w]", bs.task.File, err)
+		return fmt.Errorf("error transform file [%s]: [%w]", task.File, err)
 	}
 
-	bs.file = filePath
-
-	for _, format := range bs.task.Formats {
-
-		if _, ok := bs.files[format]; ok {
-			continue
-		}
-		pre, err := bs.preConvert(format, filePath)
-
-		if err != nil {
-			return err
-		}
-		if pre {
-			continue
-		}
-
-		convertedFile, err := bs.transform(format, filePath)
-		bs.uploader.AddFileToDelete(convertedFile)
-		if err != nil {
-			return fmt.Errorf("error transform file [%s] to [%s]: [%w]", bs.task.File, format, err)
-		}
-		bs.files[format] = convertedFile
-	}
-
-	bs.uploader.SetFiles(bs.files)
-
-	err = bs.uploader.UploadFiles()
+	uploaded, err := uploader.UploadFiles(ctx, files, uploadConcurrency)
 	if err != nil {
 		return fmt.Errorf("error uploading files: [%w]", err)
 	}
 
-	err = bs.uploader.Complete()
-	if err != nil {
+	if err = uploader.Complete(ctx, uploaded); err != nil {
 		return fmt.Errorf("failed complete: [%w]", err)
 	}
 	return nil
+}
+
+// createTmpFile создаёт файл с уникальным именем без расширения:
+// из его имени libreoffice/ffmpeg строят имена результатов.
+func createTmpFile(directory string, fileId int) (string, error) {
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return "", fmt.Errorf("error creating directory [%s]: [%w]", directory, err)
+	}
+
+	file, err := os.CreateTemp(directory, "original"+strconv.Itoa(fileId)+"-*")
+	if err != nil {
+		return "", fmt.Errorf("error creating tmp file in [%s]: [%w]", directory, err)
+	}
+	_ = file.Close()
+	return file.Name(), nil
+}
+
+func newTaskValidator(rules map[string]string) *validator.Validate {
+	v := validator.New()
+	v.RegisterStructValidationMapRules(rules, ConvertTask{})
+	return v
+}
+
+// Cleanup - список временных файлов, которые нужно удалить после выполнения задачи.
+type Cleanup struct {
+	mu    sync.Mutex
+	files []string
+}
+
+func (c *Cleanup) Add(files ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.files = append(c.files, files...)
+}
+
+func (c *Cleanup) Remove() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, file := range c.files {
+		_ = os.Remove(file)
+	}
+	c.files = nil
 }

@@ -4,7 +4,6 @@ import (
 	resp "bitrix-converter/internal/lib/api/response"
 	"bitrix-converter/internal/lib/command"
 	"bitrix-converter/internal/lib/logger/sl"
-	"bitrix-converter/internal/lib/rabbitmq"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,23 +16,32 @@ import (
 	"strconv"
 )
 
-func New(ctx context.Context, log *slog.Logger, rabbit *rabbitmq.Rabbit) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+const maxBodySize = 1 << 20
 
-		const op = "handlers.convert.New"
+var formatsRe = regexp.MustCompile(`params\[(formats)\]\[([a-zA-Z0-9]*)\]`)
+
+type Publisher interface {
+	Publish(ctx context.Context, queue string, message []byte) error
+	DefaultQueue() string
+}
+
+func New(log *slog.Logger, publisher Publisher) http.HandlerFunc {
+	const op = "handlers.convert.New"
+
+	log = log.With(slog.String("op", op))
+
+	return func(w http.ResponseWriter, r *http.Request) {
 
 		reqId := middleware.GetReqID(r.Context())
 
-		log = log.With(
-			slog.String("op", op),
-			slog.String("request_id", reqId),
-		)
+		log := log.With(slog.String("request_id", reqId))
 
-		err := r.ParseForm()
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
-		if err != nil {
+		if err := r.ParseForm(); err != nil {
 			log.Error("failed to decode request body", sl.Err(err))
 			render.JSON(w, r, resp.Error("failed to decode request body", 152))
+			return
 		}
 
 		task, err := prepareOptions(r.Form, reqId)
@@ -45,7 +53,7 @@ func New(ctx context.Context, log *slog.Logger, rabbit *rabbitmq.Rabbit) http.Ha
 		}
 
 		if task.Queue == "" {
-			task.Queue = rabbit.DefaultQueue()
+			task.Queue = publisher.DefaultQueue()
 			log.Warn("not found queue. Set default", slog.String("default_queue", task.Queue))
 		}
 
@@ -53,36 +61,29 @@ func New(ctx context.Context, log *slog.Logger, rabbit *rabbitmq.Rabbit) http.Ha
 
 		if err != nil {
 			log.Error("Error parse request", sl.Err(err))
-
 			render.JSON(w, r, resp.Error("Error parse request", 0))
-
 			return
 		}
 
-		err = rabbit.Publish(task.Queue, taskMsg)
-		if err != nil {
+		if err = publisher.Publish(r.Context(), task.Queue, taskMsg); err != nil {
 			log.Error("error publish task", slog.String("queue", task.Queue), sl.Err(err))
 			render.JSON(w, r, resp.Error("error publish task", 0))
+			return
 		}
+
 		render.JSON(w, r, resp.Success())
 	}
 }
 
-func parseFormats(form url.Values) ([]string, error) {
+func parseFormats(form url.Values) []string {
 	var result []string
 
 	for key, values := range form {
-		reg, err := regexp.Compile("params\\[(formats)\\]\\[([a-zA-Z0-9]*)\\]")
-		if err != nil {
-			return result, fmt.Errorf("error parsing formats: [%w]", err)
-		}
-		matches := reg.FindStringSubmatch(key)
-
-		if len(matches) > 0 {
+		if formatsRe.MatchString(key) && len(values) > 0 {
 			result = append(result, values[0])
 		}
 	}
-	return result, nil
+	return result
 }
 
 func prepareOptions(postForm url.Values, reqId string) (command.ConvertTask, error) {
@@ -93,7 +94,7 @@ func prepareOptions(postForm url.Values, reqId string) (command.ConvertTask, err
 	task.BackUrl = postForm.Get("params[back_url]")
 	task.File = postForm.Get("params[file]")
 	task.RequestID = reqId
-	var err error
+
 	if fileId := postForm.Get("params[file_id]"); fileId != "" {
 		taskFileId, err := strconv.Atoi(fileId)
 		if err != nil {
@@ -110,10 +111,7 @@ func prepareOptions(postForm url.Values, reqId string) (command.ConvertTask, err
 		task.FileSize = taskFileSize
 	}
 
-	task.Formats, err = parseFormats(postForm)
+	task.Formats = parseFormats(postForm)
 
-	if err != nil {
-		return task, err
-	}
 	return task, nil
 }

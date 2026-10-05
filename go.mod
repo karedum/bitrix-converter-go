@@ -1,15 +1,16 @@
 module bitrix-converter
 
-go 1.24
+go 1.24.0
 
 require (
-	github.com/avast/retry-go v3.0.0+incompatible
+	github.com/avast/retry-go/v4 v4.7.0
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-chi/render v1.0.3
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/google/go-querystring v1.1.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/rabbitmq/amqp091-go v1.10.0
+	golang.org/x/sync v0.17.0
 )
 
 require (
