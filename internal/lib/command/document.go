@@ -3,251 +3,235 @@ package command
 import (
 	"archive/zip"
 	"bitrix-converter/internal/config"
-	"bitrix-converter/internal/lib/fileuploader"
 	"bitrix-converter/internal/lib/util"
+	"context"
 	"fmt"
-	"github.com/go-playground/validator/v10"
-
 	"io"
 	"net/http"
-	"slices"
-	"strings"
-
-	"log/slog"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 )
 
 const (
 	libreofficeCommand = "libreoffice"
-	libreofficeArg     = "-env:UserInstallation=file://%s --convert-to %s --outdir %s %s --headless --display :0"
 	documentDir        = "documents"
 	imageMagicCommand  = "convert"
-	imageMagicArg      = "-density 150 %s -quality 90 %s"
 )
 
 var (
+	// форматы, которые получаются из pdf, а не из исходного файла
 	convertFromPdf = []string{
 		"jpg",
 		"pngAllPages",
 	}
-)
 
-type DocumentCommand struct {
-	*BaseCommand
-	uniqId string
-}
-
-func NewDocumentCommand(task ConvertTask, log *slog.Logger, uploader fileuploader.FileUploader, cfg config.ConvertConfig, uniqId string) *DocumentCommand {
-	bs := BaseCommand{
-		uploader: uploader,
-		task:     task,
-		log:      log,
-		cfg:      cfg,
-		files:    make(map[string]string),
-	}
-	doc := &DocumentCommand{
-		BaseCommand: &bs,
-		uniqId:      uniqId,
-	}
-	bs.Command = doc
-	return doc
-}
-
-func (d *DocumentCommand) validate() error {
-
-	validate := validator.New()
-
-	rules := map[string]string{
+	documentValidator = newTaskValidator(map[string]string{
 		"BackUrl": "required",
 		"File":    "required",
 		"Formats": "required,min=1,dive,required,oneof=pdf jpg txt text md5 sha1 crc32 pngAllPages",
-	}
-	validate.RegisterStructValidationMapRules(rules, d.task)
+	})
+)
 
-	return validate.Struct(d.task)
-
+type DocumentConverter struct {
+	cfg    config.ConvertConfig
+	runner *Runner
+	// profileDir - отдельный профиль libreoffice: два процесса с одним профилем не могут работать одновременно
+	profileDir string
 }
 
-func (d *DocumentCommand) transform(format string, filePath string) (string, error) {
-	fileInfo, err := os.Stat(filePath)
-
-	if err != nil {
-		return "", fmt.Errorf("error get file info [%s]: [%w]", filePath, err)
+func NewDocumentConverter(cfg config.ConvertConfig, runner *Runner, workerID string) *DocumentConverter {
+	return &DocumentConverter{
+		cfg:        cfg,
+		runner:     runner,
+		profileDir: filepath.Join(os.TempDir(), "libreoffice", workerID),
 	}
+}
 
+func (d *DocumentConverter) Validate(task ConvertTask) error {
+	return documentValidator.Struct(task)
+}
+
+func (d *DocumentConverter) Convert(ctx context.Context, src string, formats []string, cleanup *Cleanup) (map[string]string, error) {
 	directory := d.SuccessDir()
 
-	err = os.MkdirAll(directory, 0755)
-
-	if err != nil {
-		return "", fmt.Errorf("error create directory [%s]: [%w]", directory, err)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return nil, fmt.Errorf("error create directory [%s]: [%w]", directory, err)
 	}
 
-	randTmpDir := filepath.Join(os.TempDir(), "libreoffice", d.uniqId)
+	files := make(map[string]string, len(formats))
 
-	args := strings.Fields(fmt.Sprintf(libreofficeArg, randTmpDir, format, directory, filePath))
-
-	cmd := exec.Command(libreofficeCommand, args...)
-
-	if err = cmd.Run(); err != nil {
-		return "", fmt.Errorf("error libreoffice command file [%s]: [%w]", filePath, err)
-	}
-
-	return filepath.Join(directory, util.FileNameNotExt(fileInfo.Name())+"."+format), nil
-}
-
-func (d *DocumentCommand) preConvert(format string, filePath string) (bool, error) {
-	needConvert := slices.Contains(convertFromPdf, format)
-	if needConvert {
-		pdf := d.existPdfFile()
-		var err error
-		if pdf == "" {
-			pdf, err = d.transform("pdf", filePath)
-			if err != nil {
-				return false, fmt.Errorf("error transform file [%s] to [%s]: [%w]", d.task.File, format, err)
-			}
-			d.uploader.AddFileToDelete(pdf)
-			needPdf := slices.Contains(d.task.Formats, "pdf")
-			if needPdf {
-				d.files["pdf"] = pdf
+	// pdf нужен и как самостоятельный формат, и как промежуточный для jpg/pngAllPages - получаем его один раз
+	var pdf string
+	if slices.Contains(formats, "pdf") || slices.ContainsFunc(formats, isFromPdf) {
+		if isPdfFile(src) {
+			pdf = src
+		} else {
+			var err error
+			if pdf, err = d.libreoffice(ctx, "pdf", src, directory, cleanup); err != nil {
+				return nil, err
 			}
 		}
+		if slices.Contains(formats, "pdf") {
+			files["pdf"] = pdf
+		}
+	}
+
+	for _, format := range formats {
+		if _, ok := files[format]; ok {
+			continue
+		}
+
+		var (
+			result string
+			err    error
+		)
 
 		switch format {
 		case "jpg":
-			jpg, err := d.transform(format, pdf)
-			d.uploader.AddFileToDelete(jpg)
-			if err != nil {
-				return false, fmt.Errorf("error transform file [%s] to [%s]: [%w]", d.task.File, format, err)
-			}
-			d.files[format] = jpg
-			return true, nil
+			result, err = d.libreoffice(ctx, format, pdf, directory, cleanup)
 		case "pngAllPages":
-			zipPath, err := d.convertToPng(pdf)
-
-			if err != nil {
-				return false, fmt.Errorf("error transform file to pngAllPages [%s]: [%w]", pdf, err)
-			}
-
-			d.files["pngAllPages"] = zipPath
-			return true, nil
+			result, err = d.convertToPng(ctx, pdf, cleanup)
+		default:
+			result, err = d.libreoffice(ctx, format, src, directory, cleanup)
 		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error transform file to [%s]: [%w]", format, err)
+		}
+		files[format] = result
 	}
-	return false, nil
+
+	return files, nil
 }
 
-func (d *DocumentCommand) convertToPng(pdf string) (string, error) {
+func isFromPdf(format string) bool {
+	return slices.Contains(convertFromPdf, format)
+}
+
+func (d *DocumentConverter) libreoffice(ctx context.Context, format string, src string, directory string, cleanup *Cleanup) (string, error) {
+	result := filepath.Join(directory, util.FileNameNotExt(filepath.Base(src))+"."+format)
+	cleanup.Add(result)
+
+	err := d.runner.Run(ctx, libreofficeCommand,
+		"-env:UserInstallation=file://"+d.profileDir,
+		"--convert-to", format,
+		"--outdir", directory,
+		src,
+		"--headless",
+		"--display", ":0",
+	)
+	if err != nil {
+		return "", fmt.Errorf("error libreoffice convert file [%s] to [%s]: [%w]", src, format, err)
+	}
+
+	return result, nil
+}
+
+func (d *DocumentConverter) convertToPng(ctx context.Context, pdf string, cleanup *Cleanup) (string, error) {
 	pngFileName := pdf + ".png"
-	pngs := map[string]string{}
 
-	args := strings.Fields(fmt.Sprintf(imageMagicArg, pdf, pngFileName))
-
-	cmd := exec.Command(imageMagicCommand, args...)
-	if err := cmd.Run(); err != nil {
+	err := d.runner.Run(ctx, imageMagicCommand, "-density", "150", pdf, "-quality", "90", pngFileName)
+	if err != nil {
 		return "", fmt.Errorf("error image magic command: [%w]", err)
 	}
 
-	_, err := os.Stat(pngFileName)
-	if err == nil {
-		pngs["0.png"] = pngFileName
-		d.uploader.AddFileToDelete(pngFileName)
-	} else {
-		counter := 0
-		pngFileName = pdf + "-" + strconv.Itoa(counter) + ".png"
+	pngs := map[string]string{}
 
-		for {
-			_, err := os.Stat(pngFileName)
-			if err != nil {
+	// одностраничный документ - file.png, многостраничный - file-0.png, file-1.png, ...
+	if _, err = os.Stat(pngFileName); err == nil {
+		pngs["0.png"] = pngFileName
+		cleanup.Add(pngFileName)
+	} else {
+		for counter := 0; ; counter++ {
+			pngFileName = pdf + "-" + strconv.Itoa(counter) + ".png"
+			if _, err = os.Stat(pngFileName); err != nil {
 				break
 			}
-			d.uploader.AddFileToDelete(pngFileName)
+			cleanup.Add(pngFileName)
 			pngs[strconv.Itoa(counter)+".png"] = pngFileName
-			counter++
-			pngFileName = pdf + "-" + strconv.Itoa(counter) + ".png"
 		}
 	}
 
 	zipPath := pdf + "_pngs.zip"
-	d.uploader.AddFileToDelete(zipPath)
-	err = d.zipArchive(zipPath, pngs)
-	if err != nil {
+	cleanup.Add(zipPath)
+
+	if err = zipArchive(zipPath, pngs); err != nil {
 		return "", fmt.Errorf("error zipping files: [%w]", err)
 	}
 	return zipPath, nil
 }
 
-func (d *DocumentCommand) zipArchive(zipPath string, pngs map[string]string) error {
-
+func zipArchive(zipPath string, pngs map[string]string) (err error) {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return fmt.Errorf("error creating zip file [%s]: [%w]", zipPath, err)
 	}
-	defer zipFile.Close()
+	defer func() {
+		if closeErr := zipFile.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("error closing zip file [%s]: [%w]", zipPath, closeErr)
+		}
+	}()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+
 	for name, filePath := range pngs {
-		file, err := os.Open(filePath)
-		if err != nil {
-			return fmt.Errorf("error opening file [%s]: [%w]", filePath, err)
+		if err = addFileToZip(zipWriter, name, filePath); err != nil {
+			return err
 		}
-		defer file.Close()
+	}
 
-		w, err := zipWriter.Create(name)
-		if err != nil {
-			return fmt.Errorf("error creating zip writer [%s]: [%w]", name, err)
-		}
-
-		_, err = io.Copy(w, file)
-		if err != nil {
-			return fmt.Errorf("error copying file to zip writer [%s]: [%w]", filePath, err)
-		}
+	if err = zipWriter.Close(); err != nil {
+		return fmt.Errorf("error finishing zip file [%s]: [%w]", zipPath, err)
 	}
 	return nil
 }
 
-func (d *DocumentCommand) isPdfFile() bool {
-	f, err := os.Open(d.file)
+func addFileToZip(zipWriter *zip.Writer, name string, filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("error opening file [%s]: [%w]", filePath, err)
+	}
+	defer file.Close()
+
+	w, err := zipWriter.Create(name)
+	if err != nil {
+		return fmt.Errorf("error creating zip writer [%s]: [%w]", name, err)
+	}
+
+	if _, err = io.Copy(w, file); err != nil {
+		return fmt.Errorf("error copying file to zip writer [%s]: [%w]", filePath, err)
+	}
+	return nil
+}
+
+func isPdfFile(filePath string) bool {
+	f, err := os.Open(filePath)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
+
 	buffer := make([]byte, 512)
 
-	_, err = f.Read(buffer)
-	if err != nil {
+	n, err := io.ReadFull(f, buffer)
+	if n == 0 && err != nil {
 		return false
 	}
 
-	contentType := http.DetectContentType(buffer)
-
-	return contentType == "application/pdf"
+	return http.DetectContentType(buffer[:n]) == "application/pdf"
 }
 
-func (d *DocumentCommand) existPdfFile() string {
-	if d.isPdfFile() {
-		return d.file
-	}
-	convertedFiles := d.files
-
-	if file, ok := convertedFiles["pdf"]; ok {
-		return file
-	}
-	return ""
-}
-
-func (d *DocumentCommand) MaxSize() int64 {
+func (d *DocumentConverter) MaxSize() int64 {
 	return d.cfg.MaxDocumentSize
 }
 
-func (d *DocumentCommand) SuccessDir() string {
+func (d *DocumentConverter) SuccessDir() string {
 	return path.Join(d.cfg.SuccessDir, documentDir)
 }
 
-func (d *DocumentCommand) DownloadDir() string {
+func (d *DocumentConverter) DownloadDir() string {
 	return path.Join(d.cfg.DownloadDir, documentDir)
 }

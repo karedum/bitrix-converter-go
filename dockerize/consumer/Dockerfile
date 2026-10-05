@@ -1,4 +1,5 @@
-FROM golang:1.24-bookworm
+# trixie: LibreOffice 25.x. В LibreOffice 7.4 (bookworm) при экспорте в PDF теряются текстовые гиперссылки
+FROM golang:1.24-trixie
 
 # Disable prompts on apt-get install
 ENV DEBIAN_FRONTEND noninteractive
@@ -35,7 +36,10 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 
-COPY ./dockerize/imagemagic/policy.xml /etc/ImageMagick-6/policy.xml
+COPY ./dockerize/imagemagic/policy.xml /tmp/policy.xml
+
+# путь к политике зависит от версии ImageMagick (6 или 7)
+RUN for dir in /etc/ImageMagick-*; do cp /tmp/policy.xml "$dir/policy.xml"; done && rm /tmp/policy.xml
 
 COPY go.mod .
 

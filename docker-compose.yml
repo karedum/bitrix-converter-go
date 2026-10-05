@@ -22,8 +22,11 @@ services:
   producer:
     container_name: producer
     restart: always
-    #ports:
-      #- ${CONVERT_API_PORT}:${CONVERT_API_PORT}
+    stop_grace_period: 30s
+    extra_hosts:
+      - "crm.navigatorgroup.ru:172.17.1.192"
+    ports:
+      - ${CONVERT_API_PORT}:${CONVERT_API_PORT}
     env_file:
       - .env
     build:
@@ -40,6 +43,10 @@ services:
   consumer:
     container_name: consumer
     restart: always
+    # должно быть больше CONVERT_SHUTDOWN_TIMEOUT, иначе docker убьёт процесс до завершения задач
+    stop_grace_period: 5m
+    extra_hosts:
+      - "crm.navigatorgroup.ru:172.17.1.192"
     env_file:
       - .env
     build:
